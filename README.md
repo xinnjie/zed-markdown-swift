@@ -51,5 +51,7 @@ Then re-copy `crates/gpui_macos` and re-apply the hosted-mode changes listed in 
 
 ## License
 
-Zed's `markdown` and most of its dependencies are GPL-3.0-or-later, so anything linking the C API is
-GPL-3.0-or-later. `packages/gpui_macos` is Apache-2.0 (from Zed).
+The repository is licensed under [GPL-3.0-or-later](LICENSE): Zed's `markdown` crate and most of its
+dependencies (`ui`, `theme`, `settings`, `language`, ...) are GPL-3.0-or-later, and they are linked into
+the static library and the Swift package. `packages/gpui_macos` stays Apache-2.0 (from Zed); see
+[`packages/gpui_macos/LICENSE-APACHE`](packages/gpui_macos/LICENSE-APACHE).
