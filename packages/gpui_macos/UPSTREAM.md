@@ -5,3 +5,6 @@ Copied from Zed's `crates/gpui_macos` (Apache-2.0) at
 
 This directory is an unmodified copy of that crate. Its `Cargo.toml` uses `workspace = true`
 dependencies, so it only builds inside a workspace that provides Zed's workspace dependency table.
+
+`LICENSE-APACHE` is a regular file here (a copy of Zed's repository-root `LICENSE-APACHE`), because
+upstream's is a symlink to the repository root.
