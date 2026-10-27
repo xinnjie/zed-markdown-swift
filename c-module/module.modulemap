@@ -1,0 +1,5 @@
+module CZedGPUI [system] {
+  header "../packages/zed-gpui-c-api/include/zed_gpui.h"
+  link "zed_gpui_c_api"
+  export *
+}
