@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Regenerate this Cargo workspace's manifest from a Zed checkout.
 
-Zed crates are consumed as git dependencies pinned to one revision. Cargo only
-applies `[patch]` tables and resolves `workspace = true` from the root workspace,
-so the vendored `gpui_macos` needs Zed's workspace dependency table and patches.
+Zed crates are consumed as git dependencies pinned to one revision. The local
+workspace members inherit dependencies from this root, so keep only the entries
+they reference. Git dependencies inherit from Zed's own workspace manifest.
+Cargo also applies the root `[patch]` tables to the full dependency graph.
 
 Usage: sync_zed_workspace.py <zed-checkout>
 Copies Zed's Cargo.lock as the starting point for dependency resolution.
@@ -13,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ZED_GIT = "https://github.com/zed-industries/zed"
@@ -46,6 +48,45 @@ def section(text: str, header: str) -> str:
     return f"[{header}]\n{match.group(1)}"
 
 
+def local_workspace_dependencies() -> set[str]:
+    dependencies = set()
+    for manifest in (HERE / "packages").glob("*/Cargo.toml"):
+        package = tomllib.loads(manifest.read_text())
+        tables = [
+            package.get("dependencies", {}),
+            package.get("dev-dependencies", {}),
+            package.get("build-dependencies", {}),
+        ]
+        for target in package.get("target", {}).values():
+            tables.extend(
+                target.get(table, {})
+                for table in ("dependencies", "dev-dependencies", "build-dependencies")
+            )
+        for table in tables:
+            dependencies.update(
+                name
+                for name, definition in table.items()
+                if isinstance(definition, dict) and definition.get("workspace") is True
+            )
+    return dependencies
+
+
+def filter_workspace_dependencies(table: str, needed: set[str]) -> str:
+    definitions = tomllib.loads(table)["workspace"]["dependencies"]
+    missing = needed - definitions.keys()
+    if missing:
+        raise SystemExit(f"missing workspace dependency definitions: {', '.join(sorted(missing))}")
+
+    starts = list(re.finditer(r"^([A-Za-z0-9_-]+)\s*=", table, re.M))
+    retained = ["[workspace.dependencies]\n"]
+    for index, match in enumerate(starts):
+        name = match.group(1)
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(table)
+        if name in needed:
+            retained.append(table[match.start() : end].rstrip() + "\n")
+    return "".join(retained)
+
+
 def main() -> None:
     zed = Path(sys.argv[1]).resolve()
     rev = subprocess.check_output(["git", "-C", str(zed), "rev-parse", "HEAD"], text=True).strip()
@@ -56,9 +97,14 @@ def main() -> None:
             r'path = "(?:crates|tooling)/[^"]+"', f'git = "{ZED_GIT}", rev = "{rev}"', table
         )
 
+    workspace_dependencies = pin_to_git(section(text, "workspace.dependencies"))
+    workspace_dependencies = filter_workspace_dependencies(
+        workspace_dependencies, local_workspace_dependencies()
+    )
+
     parts = [
         HEADER.format(rev=rev),
-        pin_to_git(section(text, "workspace.dependencies")),
+        workspace_dependencies,
         PATCH_ZED.format(git=ZED_GIT),
         pin_to_git(section(text, "patch.crates-io")),
         section(text, "profile.dev"),
