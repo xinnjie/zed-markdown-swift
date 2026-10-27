@@ -12,6 +12,7 @@ use crate::{
 use cocoa::{
     appkit::{NSEvent, NSEventModifierFlags, NSEventPhase, NSEventType},
     base::{YES, id},
+    foundation::NSPoint,
 };
 use core_foundation::data::{CFDataGetBytePtr, CFDataRef};
 use core_graphics::event::CGKeyCode;
@@ -103,7 +104,9 @@ unsafe fn read_modifiers(native_event: id) -> Modifiers {
 
 pub(crate) unsafe fn platform_input_from_native(
     native_event: id,
-    window_height: Option<Pixels>,
+    // Height of the GPUI view and its bottom-left origin in window coordinates. The origin is
+    // zero for GPUI-owned windows and the view's offset when hosted inside another app's view.
+    window_frame: Option<(Pixels, NSPoint)>,
 ) -> Option<PlatformInput> {
     unsafe {
         let event_type = native_event.eventType();
@@ -148,13 +151,14 @@ pub(crate) unsafe fn platform_input_from_native(
                     // Other mouse buttons aren't tracked currently
                     _ => return None,
                 };
-                window_height.map(|window_height| {
+                window_frame.map(|(window_height, origin)| {
                     PlatformInput::MouseDown(MouseDownEvent {
                         button,
                         position: point(
-                            px(native_event.locationInWindow().x as f32),
+                            px((native_event.locationInWindow().x - origin.x) as f32),
                             // MacOS screen coordinates are relative to bottom left
-                            window_height - px(native_event.locationInWindow().y as f32),
+                            window_height
+                                - px((native_event.locationInWindow().y - origin.y) as f32),
                         ),
                         modifiers: read_modifiers(native_event),
                         click_count: native_event.clickCount() as usize,
@@ -175,12 +179,13 @@ pub(crate) unsafe fn platform_input_from_native(
                     _ => return None,
                 };
 
-                window_height.map(|window_height| {
+                window_frame.map(|(window_height, origin)| {
                     PlatformInput::MouseUp(MouseUpEvent {
                         button,
                         position: point(
-                            px(native_event.locationInWindow().x as f32),
-                            window_height - px(native_event.locationInWindow().y as f32),
+                            px((native_event.locationInWindow().x - origin.x) as f32),
+                            window_height
+                                - px((native_event.locationInWindow().y - origin.y) as f32),
                         ),
                         modifiers: read_modifiers(native_event),
                         click_count: native_event.clickCount() as usize,
@@ -191,7 +196,7 @@ pub(crate) unsafe fn platform_input_from_native(
                 let stage = native_event.stage();
                 let pressure = native_event.pressure();
 
-                window_height.map(|window_height| {
+                window_frame.map(|(window_height, origin)| {
                     PlatformInput::MousePressure(MousePressureEvent {
                         stage: match stage {
                             1 => PressureStage::Normal,
@@ -201,8 +206,9 @@ pub(crate) unsafe fn platform_input_from_native(
                         pressure,
                         modifiers: read_modifiers(native_event),
                         position: point(
-                            px(native_event.locationInWindow().x as f32),
-                            window_height - px(native_event.locationInWindow().y as f32),
+                            px((native_event.locationInWindow().x - origin.x) as f32),
+                            window_height
+                                - px((native_event.locationInWindow().y - origin.y) as f32),
                         ),
                     })
                 })
@@ -219,12 +225,13 @@ pub(crate) unsafe fn platform_input_from_native(
                 };
 
                 match navigation_direction {
-                    Some(direction) => window_height.map(|window_height| {
+                    Some(direction) => window_frame.map(|(window_height, origin)| {
                         PlatformInput::MouseDown(MouseDownEvent {
                             button: MouseButton::Navigate(direction),
                             position: point(
-                                px(native_event.locationInWindow().x as f32),
-                                window_height - px(native_event.locationInWindow().y as f32),
+                                px((native_event.locationInWindow().x - origin.x) as f32),
+                                window_height
+                                    - px((native_event.locationInWindow().y - origin.y) as f32),
                             ),
                             modifiers: read_modifiers(native_event),
                             click_count: 1,
@@ -234,7 +241,7 @@ pub(crate) unsafe fn platform_input_from_native(
                     _ => None,
                 }
             }
-            NSEventType::NSEventTypeMagnify => window_height.map(|window_height| {
+            NSEventType::NSEventTypeMagnify => window_frame.map(|(window_height, origin)| {
                 let phase = match native_event.phase() {
                     NSEventPhase::NSEventPhaseMayBegin | NSEventPhase::NSEventPhaseBegan => {
                         TouchPhase::Started
@@ -247,15 +254,15 @@ pub(crate) unsafe fn platform_input_from_native(
 
                 PlatformInput::Pinch(PinchEvent {
                     position: point(
-                        px(native_event.locationInWindow().x as f32),
-                        window_height - px(native_event.locationInWindow().y as f32),
+                        px((native_event.locationInWindow().x - origin.x) as f32),
+                        window_height - px((native_event.locationInWindow().y - origin.y) as f32),
                     ),
                     delta: magnification,
                     modifiers: read_modifiers(native_event),
                     phase,
                 })
             }),
-            NSEventType::NSScrollWheel => window_height.map(|window_height| {
+            NSEventType::NSScrollWheel => window_frame.map(|(window_height, origin)| {
                 let phase = match native_event.phase() {
                     NSEventPhase::NSEventPhaseMayBegin | NSEventPhase::NSEventPhaseBegan => {
                         TouchPhase::Started
@@ -277,8 +284,8 @@ pub(crate) unsafe fn platform_input_from_native(
 
                 PlatformInput::Scroll(ScrollEvent {
                     position: point(
-                        px(native_event.locationInWindow().x as f32),
-                        window_height - px(native_event.locationInWindow().y as f32),
+                        px((native_event.locationInWindow().x - origin.x) as f32),
+                        window_height - px((native_event.locationInWindow().y - origin.y) as f32),
                     ),
                     delta,
                     touch_phase: phase,
@@ -299,32 +306,33 @@ pub(crate) unsafe fn platform_input_from_native(
                     _ => return None,
                 };
 
-                window_height.map(|window_height| {
+                window_frame.map(|(window_height, origin)| {
                     PlatformInput::MouseMove(MouseMoveEvent {
                         pressed_button: Some(pressed_button),
                         position: point(
-                            px(native_event.locationInWindow().x as f32),
-                            window_height - px(native_event.locationInWindow().y as f32),
+                            px((native_event.locationInWindow().x - origin.x) as f32),
+                            window_height
+                                - px((native_event.locationInWindow().y - origin.y) as f32),
                         ),
                         modifiers: read_modifiers(native_event),
                     })
                 })
             }
-            NSEventType::NSMouseMoved => window_height.map(|window_height| {
+            NSEventType::NSMouseMoved => window_frame.map(|(window_height, origin)| {
                 PlatformInput::MouseMove(MouseMoveEvent {
                     position: point(
-                        px(native_event.locationInWindow().x as f32),
-                        window_height - px(native_event.locationInWindow().y as f32),
+                        px((native_event.locationInWindow().x - origin.x) as f32),
+                        window_height - px((native_event.locationInWindow().y - origin.y) as f32),
                     ),
                     pressed_button: None,
                     modifiers: read_modifiers(native_event),
                 })
             }),
-            NSEventType::NSMouseExited => window_height.map(|window_height| {
+            NSEventType::NSMouseExited => window_frame.map(|(window_height, origin)| {
                 PlatformInput::MouseExited(MouseExitEvent {
                     position: point(
-                        px(native_event.locationInWindow().x as f32),
-                        window_height - px(native_event.locationInWindow().y as f32),
+                        px((native_event.locationInWindow().x - origin.x) as f32),
+                        window_height - px((native_event.locationInWindow().y - origin.y) as f32),
                     ),
 
                     pressed_button: None,

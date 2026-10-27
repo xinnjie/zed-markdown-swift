@@ -207,6 +207,9 @@ pub(crate) struct MacPlatformState {
     /// Mirrors `[NSCursor setHiddenUntilMouseMoves:]` state, which AppKit doesn't expose.
     cursor_visible: Arc<AtomicBool>,
     system_notifications: crate::system_notifications::SystemNotificationState,
+    // Set for an app embedded in another application's run loop; see `MacPlatform::new_hosted`.
+    hosted: bool,
+    next_window_host_view: Option<id>,
 }
 
 /// The activation policy that stands for a windowing mode: an app is headless while it has no
@@ -226,6 +229,24 @@ fn native_activation_policy(policy: ActivationPolicy) -> NSApplicationActivation
 }
 
 impl MacPlatform {
+    /// A platform for GPUI views embedded in an AppKit or SwiftUI application that owns
+    /// `NSApplication` and the run loop. Start the app with `Application::run_embedded`, then
+    /// open each window with [`MacPlatform::set_next_window_host_view`].
+    pub fn new_hosted() -> Self {
+        let platform = Self::new(false);
+        platform.0.lock().hosted = true;
+        platform
+    }
+
+    /// Makes the next `open_window` render into `host_view` (an `NSView` already in a window)
+    /// instead of creating an `NSWindow`.
+    ///
+    /// # Safety
+    /// `host_view` must be a live `NSView` and the call must happen on the main thread.
+    pub unsafe fn set_next_window_host_view(&self, host_view: *mut c_void) {
+        self.0.lock().next_window_host_view = Some(host_view as id);
+    }
+
     pub fn new(headless: bool) -> Self {
         let marker = MainThreadMarker::new().expect("Mac platform not created on main thread");
         let dispatcher = Arc::new(AppleDispatcher::new());
@@ -275,6 +296,8 @@ impl MacPlatform {
             keyboard_mapper,
             cursor_visible: Arc::new(AtomicBool::new(true)),
             system_notifications: crate::system_notifications::SystemNotificationState::new(),
+            hosted: false,
+            next_window_host_view: None,
         });
         Self(state, marker)
     }
@@ -550,6 +573,12 @@ impl Platform for MacPlatform {
 
     fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
         let mut state = self.0.lock();
+        if state.hosted {
+            // The embedding application already runs `NSApplication`.
+            drop(state);
+            on_finish_launching();
+            return;
+        }
         if state.headless {
             drop(state);
             on_finish_launching();
@@ -776,15 +805,29 @@ impl Platform for MacPlatform {
             return Err(PopupNotSupportedError.into());
         }
 
-        let (cursor_visible, foreground_executor, background_executor, renderer_context) = {
-            let guard = self.0.lock();
+        let (cursor_visible, foreground_executor, background_executor, renderer_context, host_view) = {
+            let mut guard = self.0.lock();
             (
                 guard.cursor_visible.clone(),
                 guard.foreground_executor.clone(),
                 guard.background_executor.clone(),
                 guard.renderer_context.clone(),
+                guard.next_window_host_view.take(),
             )
         };
+
+        if let Some(host_view) = host_view {
+            return Ok(Box::new(MacWindow::open_hosted(
+                handle,
+                host_view,
+                options,
+                cursor_visible,
+                foreground_executor,
+                background_executor,
+                renderer_context,
+                self.1,
+            )));
+        }
 
         Ok(Box::new(MacWindow::open(
             handle,
