@@ -2,7 +2,7 @@
 
 [workspace]
 resolver = "2"
-members = ["packages/gpui_macos"]
+members = ["packages/gpui_macos", "packages/zed-gpui-c-api"]
 
 [workspace.package]
 publish = false

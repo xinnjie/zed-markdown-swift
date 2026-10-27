@@ -1,0 +1,12 @@
+[tasks."build:rust"]
+description = "Build the Zed GPUI static library (first build compiles ~800 Zed crates)"
+run = "cargo build -p zed-gpui-c-api"
+
+[tasks."build:app"]
+description = "Build the Markdown preview demo app"
+depends = ["build:rust"]
+run = "tooling/build-app.sh"
+
+[tasks."run:app"]
+description = "Build and open the Markdown preview demo app"
+run = "open \"$(mise run build:app | tail -n 1 | sed 's/^Built temporary app: //')\""
