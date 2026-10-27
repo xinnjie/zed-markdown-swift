@@ -81,6 +81,8 @@ use std::{
     time::Duration,
 };
 
+mod hosted;
+
 const WINDOW_STATE_IVAR: &str = "windowState";
 
 static RESTORES_WORKSPACE_AT_LAUNCH_DEFAULT: Once = Once::new();
@@ -136,6 +138,10 @@ unsafe fn build_classes() {
             decl.add_method(
                 sel!(performKeyEquivalent:),
                 handle_key_equivalent as extern "C" fn(&Object, Sel, id) -> BOOL,
+            );
+            decl.add_method(
+                sel!(acceptsFirstResponder),
+                accepts_first_responder as extern "C" fn(&Object, Sel) -> BOOL,
             );
             decl.add_method(
                 sel!(keyDown:),
@@ -712,6 +718,10 @@ struct MacWindowState {
     accesskit_adapter: Option<accesskit_macos::SubclassingAdapter>,
     // The parent window if this window is a sheet (Dialog kind)
     sheet_parent: Option<id>,
+    // True when the GPUI view lives inside a view owned by another application's window
+    // (see `hosted.rs`); window-level operations are left to the host.
+    hosted: bool,
+    hosted_observer: Option<id>,
 }
 
 impl MacWindowState {
@@ -909,6 +919,9 @@ impl MacWindowState {
     }
 
     fn bounds(&self) -> Bounds<Pixels> {
+        if self.hosted {
+            return Bounds::new(point(px(0.), px(0.)), self.content_size());
+        }
         let mut window_frame = unsafe { NSWindow::frame(self.native_window) };
         let screen = unsafe { NSWindow::screen(self.native_window) };
         if screen == nil {
@@ -933,9 +946,23 @@ impl MacWindowState {
     }
 
     fn content_size(&self) -> Size<Pixels> {
-        let NSSize { width, height, .. } =
-            unsafe { NSView::frame(self.native_window.contentView()) }.size;
+        let view = if self.hosted {
+            self.native_view.as_ptr()
+        } else {
+            unsafe { self.native_window.contentView() }
+        };
+        let NSSize { width, height, .. } = unsafe { NSView::frame(view) }.size;
         size(px(width as f32), px(height as f32))
+    }
+
+    /// Bottom-left corner of the GPUI view in window coordinates.
+    fn view_origin(&self) -> NSPoint {
+        if !self.hosted {
+            return NSPoint::new(0., 0.);
+        }
+        unsafe {
+            msg_send![self.native_view.as_ptr(), convertPoint: NSPoint::new(0., 0.) toView: nil]
+        }
     }
 
     fn scale_factor(&self) -> f32 {
@@ -1150,6 +1177,8 @@ impl MacWindow {
                 closed: Arc::new(AtomicBool::new(false)),
                 accesskit_adapter: None,
                 sheet_parent: None,
+                hosted: false,
+                hosted_observer: None,
             }));
             let mut window = Self(state, marker);
 
@@ -1380,6 +1409,10 @@ impl MacWindow {
 impl Drop for MacWindow {
     fn drop(&mut self) {
         let mut this = self.0.lock();
+        if this.hosted {
+            hosted::drop_hosted(this);
+            return;
+        }
         // `accesskit_macos::SubclassingAdapter::for_window` strong-retains the
         // window's content view, and that content view keeps the `GPUIView` it
         // hosts alive. Together with the `Arc<Mutex<MacWindowState>>` parked in
@@ -1443,6 +1476,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn resize(&mut self, size: Size<Pixels>) {
+        if self.0.lock().hosted {
+            return;
+        }
         let this = self.0.lock();
         let window = this.native_window;
         let closed = this.closed.clone();
@@ -1459,6 +1495,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn merge_all_windows(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let native_window = self.0.lock().native_window;
         extern "C" fn merge_windows_async(context: *mut std::ffi::c_void) {
             unsafe {
@@ -1474,6 +1513,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn move_tab_to_new_window(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let native_window = self.0.lock().native_window;
         extern "C" fn move_tab_async(context: *mut std::ffi::c_void) {
             unsafe {
@@ -1490,6 +1532,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn toggle_window_tab_overview(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let native_window = self.0.lock().native_window;
         unsafe {
             let _: () = msg_send![native_window, toggleTabOverview:nil];
@@ -1497,6 +1542,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_tabbing_identifier(&self, tabbing_identifier: Option<String>) {
+        if self.0.lock().hosted {
+            return;
+        }
         let native_window = self.0.lock().native_window;
         unsafe {
             let allows_automatic_window_tabbing = tabbing_identifier.is_some();
@@ -1516,6 +1564,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn native_window_state(&self) -> Option<Vec<u8>> {
+        if self.0.lock().hosted {
+            return None;
+        }
         let native_window = {
             let state = self.0.lock();
             if state.is_fullscreen() || state.simple_fullscreen_state.is_some() {
@@ -1562,6 +1613,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn restore_native_window_state(&self, state: &[u8]) {
+        if self.0.lock().hosted {
+            return;
+        }
         if state.is_empty() {
             return;
         }
@@ -1626,6 +1680,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_traffic_light_position(&self, position: Point<Pixels>) {
+        if self.0.lock().hosted {
+            return;
+        }
         let mut state = self.0.lock();
         state.traffic_light_position = Some(position);
         state.move_traffic_light();
@@ -1665,6 +1722,8 @@ impl PlatformWindow for MacWindow {
                 .native_window
                 .mouseLocationOutsideOfEventStream()
         };
+        let origin = self.0.lock().view_origin();
+        let position = NSPoint::new(position.x - origin.x, position.y - origin.y);
         convert_mouse_position(position, self.content_size().height)
     }
 
@@ -1791,6 +1850,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn activate(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let lock = self.0.lock();
         let window = lock.native_window;
         let view = lock.native_view.as_ptr();
@@ -1840,6 +1902,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_title(&mut self, title: &str) {
+        if self.0.lock().hosted {
+            return;
+        }
         unsafe {
             let app = NSApplication::sharedApplication(nil);
             let window = self.0.lock().native_window;
@@ -1864,6 +1929,9 @@ impl PlatformWindow for MacWindow {
     fn set_app_id(&mut self, _app_id: &str) {}
 
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance) {
+        if self.0.lock().hosted {
+            return;
+        }
         let mut this = self.0.as_ref().lock();
         this.background_appearance = background_appearance;
 
@@ -1912,6 +1980,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_edited(&mut self, edited: bool) {
+        if self.0.lock().hosted {
+            return;
+        }
         unsafe {
             let window = self.0.lock().native_window;
             msg_send![window, setDocumentEdited: edited as BOOL]
@@ -1923,6 +1994,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_document_path(&self, path: Option<&std::path::Path>) {
+        if self.0.lock().hosted {
+            return;
+        }
         unsafe {
             let window = self.0.lock().native_window;
             let filename = path.map_or(ns_string(""), |p| ns_string(&p.to_string_lossy()));
@@ -1948,6 +2022,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn minimize(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let window = self.0.lock().native_window;
         unsafe {
             window.miniaturize_(nil);
@@ -1955,6 +2032,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn zoom(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let this = self.0.lock();
         let window = this.native_window;
         let closed = this.closed.clone();
@@ -1968,6 +2048,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn toggle_fullscreen(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let this = self.0.lock();
         let window = this.native_window;
         let closed = this.closed.clone();
@@ -1981,6 +2064,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn toggle_simple_fullscreen(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let state = self.0.clone();
         let (foreground_executor, closed) = {
             let this = self.0.lock();
@@ -2153,6 +2239,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn titlebar_double_click(&self, is_resizable: bool, is_minimizable: bool) {
+        if self.0.lock().hosted {
+            return;
+        }
         let this = self.0.lock();
         if this.simple_fullscreen_state.is_some() {
             return;
@@ -2220,6 +2309,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn start_window_move(&self) {
+        if self.0.lock().hosted {
+            return;
+        }
         let this = self.0.lock();
         if this.simple_fullscreen_state.is_some() {
             return;
@@ -2367,6 +2459,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn a11y_init(&self, callbacks: gpui::A11yCallbacks) {
+        if self.0.lock().hosted {
+            return;
+        }
         let mut lock = self.0.lock();
 
         let activation_handler = A11yActivationHandler {
@@ -2572,7 +2667,14 @@ extern "C" fn reset_cursor_rects(this: &Object, _: Sel) {
 }
 
 extern "C" fn handle_key_equivalent(this: &Object, _: Sel, native_event: id) -> BOOL {
+    if !hosted::is_key_target(this) {
+        return NO;
+    }
     handle_key_event(this, native_event, true)
+}
+
+extern "C" fn accepts_first_responder(_: &Object, _: Sel) -> BOOL {
+    YES
 }
 
 extern "C" fn handle_key_down(this: &Object, _: Sel, native_event: id) {
@@ -2652,7 +2754,9 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
     let mut lock = window_state.as_ref().lock();
 
     let window_height = lock.content_size().height;
-    let event = unsafe { platform_input_from_native(native_event, Some(window_height)) };
+    let event = unsafe {
+        platform_input_from_native(native_event, Some((window_height, lock.view_origin())))
+    };
 
     let Some(event) = event else {
         return NO;
@@ -2795,6 +2899,17 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
     let window_height = lock.content_size().height;
     let native_event_type = unsafe { native_event.eventType() };
     match native_event_type {
+        NSEventType::NSLeftMouseDown
+        | NSEventType::NSRightMouseDown
+        | NSEventType::NSOtherMouseDown
+            if lock.hosted =>
+        {
+            hosted::focus_view(this);
+            if native_event_type == NSEventType::NSLeftMouseDown {
+                lock.last_left_mouse_down_event =
+                    unsafe { Retained::retain(native_event.cast::<Objc2Object>()) };
+            }
+        }
         NSEventType::NSLeftMouseDown => {
             // AppKit owns `native_event` for the callback; retain it so the drag session can still
             // be started later, once the pointer leaves the window.
@@ -2806,7 +2921,9 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
         }
         _ => {}
     }
-    let event = unsafe { platform_input_from_native(native_event, Some(window_height)) };
+    let event = unsafe {
+        platform_input_from_native(native_event, Some((window_height, lock.view_origin())))
+    };
 
     if let Some(mut event) = event {
         // AppKit unhides the cursor on the next mouse movement; mirror that here.
@@ -3772,7 +3889,10 @@ fn send_file_drop_event(
 
 fn drag_event_position(window_state: &Mutex<MacWindowState>, dragging_info: id) -> Point<Pixels> {
     let drag_location: NSPoint = unsafe { msg_send![dragging_info, draggingLocation] };
-    convert_mouse_position(drag_location, window_state.lock().content_size().height)
+    let lock = window_state.lock();
+    let origin = lock.view_origin();
+    let drag_location = NSPoint::new(drag_location.x - origin.x, drag_location.y - origin.y);
+    convert_mouse_position(drag_location, lock.content_size().height)
 }
 
 fn with_input_handler<F, R>(window: &Object, f: F) -> Option<R>
