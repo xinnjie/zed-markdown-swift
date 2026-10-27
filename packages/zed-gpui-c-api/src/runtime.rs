@@ -88,7 +88,6 @@ fn init_app(cx: &mut App) -> Arc<LanguageRegistry> {
     release_channel::init(semver::Version::new(0, 0, 0), cx);
     theme_settings::init(LoadThemes::All(Box::new(Assets)), cx);
     Assets.load_fonts(cx).expect("failed to load Zed fonts");
-    editor::init(cx);
 
     match KeymapFile::load_asset_allow_partial_failure(settings::DEFAULT_KEYMAP_PATH, cx) {
         Ok(bindings) => cx.bind_keys(bindings),

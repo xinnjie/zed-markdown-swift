@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
-import ZedGPUI
+import ZedMarkdown
 
 @main
 struct ZedMarkdownPreviewApp: App {

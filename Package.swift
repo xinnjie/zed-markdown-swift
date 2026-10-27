@@ -17,18 +17,18 @@ let swiftSettings: [SwiftSetting] = [
 ]
 
 let package = Package(
-  name: "zed-markdown-swift",
+  name: "ZedMarkdown",
   platforms: [.macOS("15.4")],
   products: [
-    .library(name: "ZedGPUI", targets: ["ZedGPUI"]),
+    .library(name: "ZedMarkdown", targets: ["ZedMarkdown"]),
     .executable(name: "ZedMarkdownPreview", targets: ["ZedMarkdownPreview"]),
   ],
   targets: [
     .systemLibrary(name: "CZedGPUI", path: "c-module"),
     .target(
-      name: "ZedGPUI",
+      name: "ZedMarkdown",
       dependencies: ["CZedGPUI"],
-      path: "Sources/ZedGPUI",
+      path: "Sources/ZedMarkdown",
       swiftSettings: swiftSettings,
       linkerSettings: [
         .unsafeFlags(
@@ -58,7 +58,7 @@ let package = Package(
     ),
     .executableTarget(
       name: "ZedMarkdownPreview",
-      dependencies: ["ZedGPUI"],
+      dependencies: ["ZedMarkdown"],
       path: "Demo/ZedMarkdownPreview",
       swiftSettings: swiftSettings
     ),
