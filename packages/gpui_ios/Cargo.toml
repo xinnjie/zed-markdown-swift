@@ -10,30 +10,13 @@ workspace = true
 
 [lib]
 path = "src/gpui_ios.rs"
-crate-type = ["staticlib", "rlib"]
 doctest = false
-
-[[example]]
-name = "ios"
-path = "examples/ios.rs"
-test = false
-bench = false
-
-[[test]]
-name = "text_input"
-path = "tests/text_input.rs"
-harness = false
 
 [features]
 runtime_shaders = ["gpui_apple/runtime_shaders"]
 
 [dependencies]
 gpui.workspace = true
-
-[target.'cfg(target_os = "ios")'.dev-dependencies]
-gpui_platform.workspace = true
-objc2-ui-kit = { workspace = true, features = ["UIConversationContext"] }
-slotmap.workspace = true
 
 [target.'cfg(target_os = "ios")'.dependencies]
 anyhow.workspace = true

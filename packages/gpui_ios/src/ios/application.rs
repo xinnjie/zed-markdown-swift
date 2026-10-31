@@ -19,12 +19,15 @@ use objc2_ui_kit::{
 };
 use std::{
     cell::{Cell, RefCell},
+    ops::Not as _,
     rc::{Rc, Weak},
 };
 
 #[derive(Default)]
 pub(super) struct IosApplicationState {
     running: Cell<bool>,
+    /// Set for an app embedded in another application's UIKit run loop; see `IosPlatform::new_hosted`.
+    pub(super) hosted: Cell<bool>,
     finish_launching: CallbackSlot<Box<dyn FnOnce()>>,
     pub(super) quit: CallbackSlot<Box<dyn FnMut()>>,
     pub(super) open_urls: CallbackSlot<Box<dyn FnMut(Vec<String>)>>,
@@ -69,7 +72,39 @@ pub(super) fn run(platform: &Rc<IosPlatformState>, on_finish_launching: Box<dyn 
     UIApplication::main(None, Some(&delegate_class), main_thread);
 }
 
+/// Starts the application inside a host app that owns `UIApplication` and its scenes. The launch
+/// callback runs immediately and frames are driven by a display link on the main run loop.
+pub(super) fn run_hosted(platform: &Rc<IosPlatformState>, on_finish_launching: Box<dyn FnOnce()>) {
+    let main_thread = MainThreadMarker::new().expect("UIKit requires the main thread");
+    CURRENT_PLATFORM.with_borrow_mut(|current| {
+        assert!(
+            current.upgrade().is_none(),
+            "the iOS application is already running"
+        );
+        *current = Rc::downgrade(platform);
+    });
+    assert!(
+        !platform.application.running.replace(true),
+        "the iOS application is already running"
+    );
+    // The display link retains this target, which only weakly references the platform.
+    let target: Retained<SceneDelegate> = unsafe { msg_send![SceneDelegate::alloc(main_thread), init] };
+    platform.application.install_display_link(&target);
+    on_finish_launching();
+}
+
 impl IosApplicationState {
+    fn install_display_link(&self, target: &SceneDelegate) {
+        self.stop_display_link();
+        let display_link = unsafe {
+            let display_link = CADisplayLink::displayLinkWithTarget_selector(target, sel!(renderFrame:));
+            display_link.setPaused(self.hosted.get().not());
+            display_link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes);
+            display_link
+        };
+        *self.display_link.borrow_mut() = Some(display_link);
+    }
+
     fn set_display_link_paused(&self, paused: bool) {
         let display_link = self.display_link.borrow().clone();
         if let Some(display_link) = display_link {
@@ -327,18 +362,7 @@ define_class!(
                 }
             }
 
-            application.stop_display_link();
-            let display_link = unsafe {
-                let display_link =
-                    CADisplayLink::displayLinkWithTarget_selector(self, sel!(renderFrame:));
-                display_link.setPaused(true);
-                display_link.addToRunLoop_forMode(
-                    &NSRunLoop::mainRunLoop(),
-                    NSRunLoopCommonModes,
-                );
-                display_link
-            };
-            *application.display_link.borrow_mut() = Some(display_link);
+            application.install_display_link(self);
         }
 
         #[unsafe(method(sceneDidDisconnect:))]

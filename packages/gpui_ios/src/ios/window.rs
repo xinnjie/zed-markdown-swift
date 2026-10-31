@@ -129,7 +129,9 @@ pub fn set_status_bar_style(style: crate::StatusBarContentStyle) {
     // Keep its single-application behavior without making runtime events global.
     if let Some(platform) = super::application::current_platform() {
         platform.application.with_windows(|window| {
-            window.view_controller.setNeedsStatusBarAppearanceUpdate();
+            if let Some(view_controller) = &window.view_controller {
+                view_controller.setNeedsStatusBarAppearanceUpdate();
+            }
         });
     }
 }
@@ -162,6 +164,15 @@ define_class!(
                         .with_window(IosWindowState::notify_appearance_changed);
                 }
             }
+        }
+
+        // A hosted view has no view controller to report layout changes.
+        #[unsafe(method(layoutSubviews))]
+        fn layout_subviews(&self) {
+            unsafe {
+                let _: () = msg_send![super(self), layoutSubviews];
+            }
+            self.ivars().with_window(IosWindowState::handle_layout_change);
         }
 
         #[unsafe(method(touchesBegan:withEvent:))]
@@ -239,10 +250,10 @@ pub(crate) struct IosWindowState {
     platform: Weak<IosPlatformState>,
     keyboard_observers:
         RefCell<Vec<Retained<objc2::runtime::ProtocolObject<dyn NSObjectProtocol>>>>,
-    /// The UIWindow object
-    window: Retained<UIWindow>,
-    /// The UIViewController
-    view_controller: Retained<ViewController>,
+    /// The UIWindow object; none when rendering into a host application's view.
+    window: Option<Retained<UIWindow>>,
+    /// The UIViewController; none when rendering into a host application's view.
+    view_controller: Option<Retained<ViewController>>,
     /// The Metal-backed UIView
     view: Retained<MetalView>,
     /// The hidden text input view for keyboard input
@@ -318,7 +329,68 @@ impl IosWindow {
             (window, bounds, screen.scale())
         };
 
-        let metal_frame = CGRect::new(CGPoint::ZERO, screen_bounds_cg.size);
+        let view = Self::make_view(screen_bounds_cg.size, scale, main_thread);
+
+        let view_controller = ViewController::new(main_thread);
+        view_controller.setView(Some(&view));
+        window.setRootViewController(Some(&view_controller));
+
+        // Make the window visible
+        window.makeKeyAndVisible();
+
+        let display_id = IosDisplay::from_screen(window.screen()).id();
+        Self::assemble(
+            platform,
+            Some(window),
+            Some(view_controller),
+            view,
+            screen_bounds_cg.size,
+            screen_bounds,
+            scale_factor,
+            scale,
+            display_id,
+            main_thread,
+        )
+    }
+
+    /// Creates a window that renders into `host_view`, a view owned by the host application.
+    ///
+    /// The host view must already be in a window. The Metal view fills it and tracks its size.
+    pub fn new_hosted(
+        host_view: &UIView,
+        platform: &Rc<IosPlatformState>,
+    ) -> anyhow::Result<Self> {
+        let main_thread = MainThreadMarker::new().expect("UIKit requires the main thread");
+        let screen = host_view
+            .window()
+            .map(|window| window.screen())
+            .unwrap_or_else(|| UIScreen::mainScreen(main_thread));
+        let scale = screen.scale();
+        let size_cg = host_view.bounds().size;
+        let view = Self::make_view(size_cg, scale, main_thread);
+        host_view.addSubview(&view);
+
+        let bounds = Bounds {
+            origin: Default::default(),
+            size: size(px(size_cg.width as f32), px(size_cg.height as f32)),
+        };
+        let display_id = IosDisplay::from_screen(screen).id();
+        Self::assemble(
+            platform,
+            None,
+            None,
+            view,
+            size_cg,
+            bounds,
+            scale as f32,
+            scale,
+            display_id,
+            main_thread,
+        )
+    }
+
+    fn make_view(size: CGSize, scale: f64, main_thread: MainThreadMarker) -> Retained<MetalView> {
+        let metal_frame = CGRect::new(CGPoint::ZERO, size);
         let view = MetalView::new(metal_frame, main_thread);
 
         let layer = view.layer();
@@ -387,12 +459,23 @@ impl IosWindow {
         back_recognizer.setDelegate(Some(ProtocolObject::from_ref(&*view)));
         view.addGestureRecognizer(&back_recognizer);
 
-        let view_controller = ViewController::new(main_thread);
-        view_controller.setView(Some(&view));
-        window.setRootViewController(Some(&view_controller));
+        view
+    }
 
-        // Make the window visible
-        window.makeKeyAndVisible();
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        platform: &Rc<IosPlatformState>,
+        window: Option<Retained<UIWindow>>,
+        view_controller: Option<Retained<ViewController>>,
+        view: Retained<MetalView>,
+        view_size: CGSize,
+        bounds: Bounds<Pixels>,
+        scale_factor: f32,
+        scale: f64,
+        display_id: DisplayId,
+        main_thread: MainThreadMarker,
+    ) -> anyhow::Result<Self> {
+        let layer = view.layer();
 
         // Create a hidden text input view for keyboard handling.
         // Uses our custom GPUITextInputView which implements UIKeyInput
@@ -403,8 +486,8 @@ impl IosWindow {
         text_input_view.setUserInteractionEnabled(true);
         view.addSubview(&text_input_view);
 
-        let pixel_w = (screen_bounds_cg.size.width * scale) as i32;
-        let pixel_h = (screen_bounds_cg.size.height * scale) as i32;
+        let pixel_w = (view_size.width * scale) as i32;
+        let pixel_h = (view_size.height * scale) as i32;
         let mut renderer = MetalRenderer::from_layer(
             MetalContext::default(),
             layer
@@ -417,13 +500,13 @@ impl IosWindow {
         let state = IosWindowState {
             platform: Rc::downgrade(platform),
             keyboard_observers: RefCell::default(),
-            display_id: Cell::new(IosDisplay::from_screen(window.screen()).id()),
+            display_id: Cell::new(display_id),
             display_changed_callback: CallbackSlot::default(),
             window,
             view_controller,
             view,
             text_input_view,
-            bounds: Cell::new(screen_bounds),
+            bounds: Cell::new(bounds),
             scale_factor: Cell::new(scale_factor),
             input_handler: CallbackSlot::default(),
             request_frame_callback: CallbackSlot::default(),
@@ -459,7 +542,9 @@ impl IosWindow {
         }
 
         let window = Rc::downgrade(&self.state);
-        *self.view_controller.ivars().0.borrow_mut() = window.clone();
+        if let Some(view_controller) = &self.view_controller {
+            *view_controller.ivars().0.borrow_mut() = window.clone();
+        }
         *self.view.ivars().0.borrow_mut() = window.clone();
         self.text_input_view.set_window(window);
 
@@ -468,9 +553,22 @@ impl IosWindow {
 }
 
 impl IosWindowState {
+    /// The screen showing this window, falling back to the main screen while detached.
+    fn screen(&self) -> Retained<UIScreen> {
+        self.view
+            .window()
+            .map(|window| window.screen())
+            .unwrap_or_else(|| {
+                UIScreen::mainScreen(MainThreadMarker::new().expect("UIKit requires the main thread"))
+            })
+    }
+
     pub(super) fn attach_to_scene(&self, scene: &UIWindowScene) {
-        self.window.setWindowScene(Some(scene));
-        self.window.makeKeyAndVisible();
+        let Some(window) = &self.window else {
+            return;
+        };
+        window.setWindowScene(Some(scene));
+        window.makeKeyAndVisible();
         self.handle_layout_change();
     }
 
@@ -743,7 +841,7 @@ impl IosWindowState {
 
     pub fn handle_layout_change(&self) {
         let view_bounds = self.view.bounds();
-        let display = IosDisplay::from_screen(self.window.screen());
+        let display = IosDisplay::from_screen(self.screen());
         if self.display_id.replace(display.id()) != display.id() {
             self.display_changed_callback.with(|callback| callback());
         }
@@ -808,10 +906,16 @@ impl Drop for IosWindow {
             unsafe { NSNotificationCenter::defaultCenter().removeObserver((&*observer).as_ref()) };
         }
 
-        *self.view_controller.ivars().0.borrow_mut() = Weak::new();
+        if let Some(view_controller) = &self.view_controller {
+            *view_controller.ivars().0.borrow_mut() = Weak::new();
+        }
         *self.view.ivars().0.borrow_mut() = Weak::new();
         self.text_input_view.set_window(Weak::new());
         self.text_input_view.removeFromSuperview();
+        if self.window.is_none() {
+            // A hosted view lives inside the host's view; the host keeps owning that one.
+            self.view.removeFromSuperview();
+        }
     }
 }
 
@@ -870,7 +974,7 @@ impl PlatformWindow for IosWindow {
     }
 
     fn display(&self) -> Option<Rc<dyn PlatformDisplay>> {
-        Some(Rc::new(IosDisplay::from_screen(self.window.screen())))
+        Some(Rc::new(IosDisplay::from_screen(self.screen())))
     }
 
     fn on_display_changed(&self, callback: Box<dyn FnMut()>) {
@@ -914,11 +1018,15 @@ impl PlatformWindow for IosWindow {
     }
 
     fn activate(&self) {
-        self.window.makeKeyAndVisible();
+        if let Some(window) = &self.window {
+            window.makeKeyAndVisible();
+        }
     }
 
     fn is_active(&self) -> bool {
-        self.window.isKeyWindow()
+        self.view
+            .window()
+            .is_some_and(|window| window.isKeyWindow())
     }
 
     fn is_hovered(&self) -> bool {

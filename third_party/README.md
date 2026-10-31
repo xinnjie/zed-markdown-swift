@@ -15,4 +15,11 @@ Copies of upstream crates, routed in through the `[patch]` tables of the root `C
 Upstream's `LICENSE-GPL` symlinks (to the Zed repository root) are regular files here. `trash-rs/`
 omits `.cargo-ok` and `.github/`.
 
-The copies are currently unmodified. Any change must be listed here.
+## Changes for iOS
+
+- `fs/src/fs.rs`: `target_os = "ios"` added to the `MaybeUninit` import and `FileHandle::current_path`
+  cfgs (iOS libc has `F_GETPATH`).
+- `settings/src/settings.rs`, `settings/src/vscode_import.rs`: iOS uses the macOS keymaps and platform
+  names (iPad hardware keyboards use Cmd).
+- `trash-rs/src/ios.rs` (new), `trash-rs/src/lib.rs`: iOS has no trash; deletion returns an error.
+  `restore_all` is no longer excluded on iOS.

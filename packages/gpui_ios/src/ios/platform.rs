@@ -32,7 +32,7 @@ use objc2_foundation::{
 };
 use objc2_ui_kit::{
     UIApplication, UIPasteboard, UIScreenModeDidChangeNotification, UITraitEnvironment,
-    UIUserInterfaceStyle, UIViewController,
+    UIUserInterfaceStyle, UIView, UIViewController,
 };
 #[allow(deprecated)]
 // Match UIScreen enumeration, including displays without a connected scene.
@@ -55,6 +55,8 @@ pub(crate) struct IosPlatformState {
     display_observers: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>>,
     display_task: RefCell<Option<Task<()>>>,
     displays_changed_callback: CallbackSlot<Box<dyn FnMut()>>,
+    /// The `UIView` the next opened window renders into; see `IosPlatform::set_next_window_host_view`.
+    next_window_host_view: RefCell<Option<Retained<UIView>>>,
 }
 
 impl Default for IosPlatform {
@@ -78,6 +80,7 @@ impl IosPlatform {
             display_observers: RefCell::new(Vec::new()),
             display_task: RefCell::new(None),
             displays_changed_callback: CallbackSlot::default(),
+            next_window_host_view: RefCell::new(None),
         });
         let (sender, mut receiver) = mpsc::unbounded();
         let block = RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
@@ -109,6 +112,25 @@ impl IosPlatform {
         });
         state.display_task.replace(Some(task));
         Self(state)
+    }
+
+    /// Creates a platform for an app embedded in a host application that owns `UIApplication`.
+    ///
+    /// `run` invokes the launch callback immediately and returns, and windows are views inside
+    /// host-owned views; open each with [`IosPlatform::set_next_window_host_view`].
+    pub fn new_hosted() -> Self {
+        let platform = Self::new();
+        platform.0.application.hosted.set(true);
+        platform
+    }
+
+    /// Makes the next `open_window` render into `host_view` instead of a new `UIWindow`.
+    ///
+    /// # Safety
+    /// `host_view` must be a live `UIView` and the call must happen on the main thread.
+    pub unsafe fn set_next_window_host_view(&self, host_view: *mut std::ffi::c_void) {
+        let host_view = unsafe { Retained::retain(host_view.cast::<UIView>()) };
+        *self.0.next_window_host_view.borrow_mut() = host_view;
     }
 
     fn root_view_controller(&self) -> Option<Retained<UIViewController>> {
@@ -198,7 +220,11 @@ impl Platform for IosPlatform {
     }
 
     fn run(&self, on_finish_launching: Box<dyn 'static + FnOnce()>) {
-        super::application::run(&self.0, on_finish_launching);
+        if self.0.application.hosted.get() {
+            super::application::run_hosted(&self.0, on_finish_launching);
+        } else {
+            super::application::run(&self.0, on_finish_launching);
+        }
     }
 
     fn quit(&self) {
@@ -249,7 +275,11 @@ impl Platform for IosPlatform {
         handle: AnyWindowHandle,
         options: WindowParams,
     ) -> anyhow::Result<Box<dyn PlatformWindow>> {
-        let window = Box::new(IosWindow::new(handle, options, &self.0)?);
+        let host_view = self.0.next_window_host_view.borrow_mut().take();
+        let window = Box::new(match host_view {
+            Some(host_view) => IosWindow::new_hosted(&host_view, &self.0)?,
+            None => IosWindow::new(handle, options, &self.0)?,
+        });
         window.register();
         Ok(window)
     }
