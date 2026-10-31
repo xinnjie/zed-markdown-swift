@@ -1,21 +1,36 @@
-import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import ZedMarkdown
 
+#if os(macOS)
+  import AppKit
+#else
+  import UIKit
+#endif
+
 @main
 struct ZedMarkdownPreviewApp: App {
   init() {
-    NSApplication.shared.setActivationPolicy(.regular)
-    if CommandLine.arguments.contains("--dark") {
-      NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-    }
+    #if os(macOS)
+      NSApplication.shared.setActivationPolicy(.regular)
+      if CommandLine.arguments.contains("--dark") {
+        NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+      }
+    #endif
   }
 
   var body: some Scene {
     WindowGroup("Zed Markdown Preview") {
-      MarkdownPreviewView()
-        .frame(minWidth: 640, minHeight: 480)
+      #if os(macOS)
+        MarkdownPreviewView()
+          .frame(minWidth: 640, minHeight: 480)
+      #else
+        NavigationStack {
+          MarkdownPreviewView()
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(CommandLine.arguments.contains("--dark") ? .dark : nil)
+      #endif
     }
   }
 }

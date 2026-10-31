@@ -1,11 +1,16 @@
-import AppKit
 import CZedGPUI
 public import SwiftUI
+
+#if canImport(AppKit)
+  import AppKit
+#else
+  import UIKit
+#endif
 
 /// Zed's Markdown preview of `markdown`. Relative image paths resolve against `baseURL`.
 ///
 /// Link clicks open in the default browser unless a handler is set with `zedOnOpenURL(_:)`.
-public struct ZedMarkdownView: NSViewRepresentable {
+public struct ZedMarkdownView {
   private let markdown: String
   private let baseURL: URL?
 
@@ -17,24 +22,44 @@ public struct ZedMarkdownView: NSViewRepresentable {
     self.baseURL = baseURL
   }
 
-  /// Creates the view that hosts the Zed Markdown preview.
-  public func makeNSView(context: Context) -> NSView {
-    let view = MarkdownHostView()
-    update(view)
-    return view
-  }
-
-  /// Passes changed Markdown to the Zed preview.
-  public func updateNSView(_ nsView: NSView, context: Context) {
-    guard let view = nsView as? MarkdownHostView else { return }
-    update(view)
-  }
-
+  @MainActor
   private func update(_ view: MarkdownHostView) {
     view.openURL = openURL.handler
     view.setContent(.init(markdown: markdown, baseDirectory: baseURL?.path))
   }
 }
+
+#if os(macOS)
+  extension ZedMarkdownView: NSViewRepresentable {
+    /// Creates the view that hosts the Zed Markdown preview.
+    public func makeNSView(context: Context) -> NSView {
+      let view = MarkdownHostView()
+      update(view)
+      return view
+    }
+
+    /// Passes changed Markdown to the Zed preview.
+    public func updateNSView(_ nsView: NSView, context: Context) {
+      guard let view = nsView as? MarkdownHostView else { return }
+      update(view)
+    }
+  }
+#else
+  extension ZedMarkdownView: UIViewRepresentable {
+    /// Creates the view that hosts the Zed Markdown preview.
+    public func makeUIView(context: Context) -> UIView {
+      let view = MarkdownHostView()
+      update(view)
+      return view
+    }
+
+    /// Passes changed Markdown to the Zed preview.
+    public func updateUIView(_ uiView: UIView, context: Context) {
+      guard let view = uiView as? MarkdownHostView else { return }
+      update(view)
+    }
+  }
+#endif
 
 extension View {
   /// Handles link clicks in a `ZedMarkdownView` instead of opening the default browser.
@@ -44,7 +69,11 @@ extension View {
 }
 
 struct ZedOpenURLAction {
-  var handler: @MainActor (URL) -> Void = { url in NSWorkspace.shared.open(url) }
+  #if os(macOS)
+    var handler: @MainActor (URL) -> Void = { url in NSWorkspace.shared.open(url) }
+  #else
+    var handler: @MainActor (URL) -> Void = { url in UIApplication.shared.open(url) }
+  #endif
 }
 
 extension EnvironmentValues {

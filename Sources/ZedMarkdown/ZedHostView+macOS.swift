@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import CZedGPUI
 
@@ -58,3 +59,4 @@ class ZedHostView: NSView {
     destroyZedView()
   }
 }
+#endif
