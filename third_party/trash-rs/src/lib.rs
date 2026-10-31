@@ -54,6 +54,11 @@ pub mod macos;
 #[cfg(target_os = "macos")]
 use macos as platform;
 
+// iOS has no user-visible trash, so deletion is reported as unsupported.
+#[cfg(target_os = "ios")]
+#[path = "ios.rs"]
+mod platform;
+
 pub const DEFAULT_TRASH_CTX: TrashContext = TrashContext::new();
 
 /// A collection of preferences for trash operations.
@@ -393,7 +398,7 @@ pub struct TrashItemMetadata {
     pub size: TrashItemSize,
 }
 
-#[cfg(all(not(target_os = "ios"), not(target_os = "android")))]
+#[cfg(not(target_os = "android"))]
 /// Restores all the provided [`TrashItem`] to their original location.
 ///
 /// This function consumes the provided items.
