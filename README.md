@@ -1,6 +1,10 @@
 # zed-markdown-swift
 
-Zed's GPUI Markdown view, embedded in a SwiftUI app as an `NSView`-backed component.
+Zed's GPUI Markdown view, embedded in a SwiftUI app as an `NSView` (macOS) or `UIView` (iPadOS) backed component.
+
+| macOS | iPadOS |
+| ----- | ------ |
+| <img src="docs/images/mac-preview.png" alt="ZedMarkdownView on macOS" width="420"> | <img src="docs/images/ipad-preview.png" alt="ZedMarkdownView on iPad" width="420"> |
 
 Zed's dependency tree is huge, so this lives in its own repository instead of inside a larger app,
 where it would dominate build times. The first build compiles about 800 Rust crates and produces a
@@ -23,6 +27,12 @@ mise run run:app
 ```
 
 The demo opens `.md` files (toolbar, drag and drop, or `--open <path>`), reloads on change, and takes `--dark`.
+
+To run it in the booted iOS simulator (iPad):
+
+```bash
+mise run run:app:ios
+```
 
 ## Layout
 
