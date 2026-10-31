@@ -15,7 +15,12 @@ Copies of upstream crates, routed in through the `[patch]` tables of the root `C
 Upstream's `LICENSE-GPL` symlinks (to the Zed repository root) are regular files here. `trash-rs/`
 omits `.cargo-ok` and `.github/`.
 
+The copies were imported unmodified in [#7](https://github.com/xinnjie/zed-markdown-swift/pull/7).
+This repository owns them and may deviate from upstream on purpose; port upstream changes selectively.
+
 ## Changes for iOS
+
+Added in [#8](https://github.com/xinnjie/zed-markdown-swift/pull/8); none proposed upstream yet.
 
 - `fs/src/fs.rs`: `target_os = "ios"` added to the `MaybeUninit` import and `FileHandle::current_path`
   cfgs (iOS libc has `F_GETPATH`).
