@@ -103,7 +103,12 @@ impl Render for MarkdownRoot {
             MarkdownStyle::themed(MarkdownFont::Preview, window, cx),
         )
         .code_block_renderer(CodeBlockRenderer::Default {
-            copy_button_visibility: CopyButtonVisibility::VisibleOnHover,
+            // Touch screens have no hover to reveal the button.
+            copy_button_visibility: if cfg!(target_os = "ios") {
+                CopyButtonVisibility::AlwaysVisible
+            } else {
+                CopyButtonVisibility::VisibleOnHover
+            },
             wrap_button_visibility: WrapButtonVisibility::Hidden,
             border: false,
         })

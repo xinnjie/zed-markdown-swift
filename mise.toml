@@ -10,3 +10,16 @@ run = "tooling/build-app.sh"
 [tasks."run:app"]
 description = "Build and open the Markdown preview demo app"
 run = "open \"$(mise run build:app | tail -n 1 | sed 's/^Built temporary app: //')\""
+
+[tasks."build:rust:ios"]
+description = "Build the Zed GPUI static library for the iOS simulator"
+run = "tooling/build-rust-ios.sh"
+
+[tasks."run:app:ios"]
+description = "Build the demo app and run it in the booted iOS simulator"
+depends = ["build:rust:ios"]
+run = """
+tooling/build-app-ios.sh
+xcrun simctl install booted .build/ios-sim/ZedMarkdownPreview.app
+xcrun simctl launch booted dev.xinnjie.zed-markdown-preview
+"""

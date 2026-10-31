@@ -4,14 +4,17 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use assets::Assets;
 use gpui::{AnyWindowHandle, App, AsyncApp, WindowOptions, prelude::*};
-use gpui_macos::MacPlatform;
-use language::LanguageRegistry;
-use node_runtime::NodeRuntime;
+#[cfg(target_os = "ios")]
+use gpui_ios::IosPlatform as HostedPlatform;
+#[cfg(target_os = "macos")]
+use gpui_macos::MacPlatform as HostedPlatform;
+use futures::FutureExt as _;
+use language::{LanguageRegistry, LoadedLanguage};
 use settings::{KeymapFile, SettingsStore};
 use theme::{ActiveTheme, LoadThemes};
 
 pub(crate) struct Runtime {
-    platform: Rc<MacPlatform>,
+    platform: Rc<HostedPlatform>,
     // Keeps the app alive; GPUI holds it weakly everywhere else.
     _app: gpui::ApplicationHandle,
     pub(crate) cx: AsyncApp,
@@ -34,7 +37,7 @@ pub(crate) fn runtime() -> Rc<Runtime> {
 impl Runtime {
     fn start() -> Self {
         zlog::init();
-        let platform = Rc::new(MacPlatform::new_hosted());
+        let platform = Rc::new(HostedPlatform::new_hosted());
         let http_client = Arc::new(
             reqwest_client::ReqwestClient::user_agent("firehorse-zed-gpui-demo")
                 .expect("failed to create HTTP client"),
@@ -63,7 +66,7 @@ impl Runtime {
         host_view: *mut std::ffi::c_void,
         build: impl FnOnce(&mut gpui::Window, &mut App) -> gpui::Entity<V>,
     ) -> anyhow::Result<gpui::WindowHandle<V>> {
-        // SAFETY: the Swift wrapper passes its own NSView, which is in a window, on the main thread.
+        // SAFETY: the Swift wrapper passes its own NSView/UIView, which is in a window, on the main thread.
         unsafe { self.platform.set_next_window_host_view(host_view) };
         let options = WindowOptions {
             titlebar: None,
@@ -97,9 +100,61 @@ fn init_app(cx: &mut App) -> Arc<LanguageRegistry> {
     let languages = LanguageRegistry::new(cx.background_executor().clone());
     languages.set_theme(cx.theme().clone());
     let languages = Arc::new(languages);
-    let fs = fs::RealFs::new(None, cx.background_executor().clone());
-    languages::init(languages.clone(), fs, NodeRuntime::unavailable(), cx);
+    register_languages(&languages);
     languages
+}
+
+/// Languages whose grammars highlight fenced code blocks. Unlike `languages::init`, this skips
+/// language servers, task providers and toolchains, which a read-only preview never uses.
+const LANGUAGES: &[&str] = &[
+    "bash",
+    "c",
+    "cpp",
+    "css",
+    "diff",
+    "go",
+    "gomod",
+    "gowork",
+    "javascript",
+    "jsdoc",
+    "json",
+    "jsonc",
+    "markdown",
+    "markdown-inline",
+    "python",
+    "regex",
+    "rust",
+    "tsx",
+    "typescript",
+    "yaml",
+    "gitcommit",
+];
+
+fn register_languages(languages: &LanguageRegistry) {
+    languages.register_native_grammars(grammars::native_grammars());
+    for &name in LANGUAGES {
+        let config = grammars::load_config(name);
+        languages.register_language(
+            config.name.clone(),
+            config.grammar.clone(),
+            config.matcher.clone(),
+            config.hidden,
+            None,
+            Arc::new(move || {
+                let config = config.clone();
+                async move {
+                    Ok(LoadedLanguage {
+                        config,
+                        queries: grammars::load_queries(name),
+                        context_provider: None,
+                        toolchain_provider: None,
+                        manifest_name: None,
+                    })
+                }
+                .boxed()
+            }),
+        );
+    }
 }
 
 /// Switches every embedded view between Zed's One Light and One Dark themes.

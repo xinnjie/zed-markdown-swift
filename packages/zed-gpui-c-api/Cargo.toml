@@ -10,17 +10,19 @@ name = "zed_gpui_c_api"
 path = "src/lib.rs"
 crate-type = ["staticlib", "rlib"]
 
+[features]
+# Compile Metal shaders at runtime, which needs no Metal Toolchain at build time.
+runtime_shaders = ["gpui_macos/runtime_shaders", "gpui_ios/runtime_shaders"]
+
 [dependencies]
 anyhow.workspace = true
 assets.workspace = true
-fs.workspace = true
+futures.workspace = true
 gpui.workspace = true
-gpui_macos = { workspace = true, features = ["font-kit"] }
+grammars = { workspace = true, features = ["load-grammars"] }
 language.workspace = true
-languages = { workspace = true, features = ["load-grammars"] }
 log.workspace = true
 markdown.workspace = true
-node_runtime.workspace = true
 release_channel.workspace = true
 reqwest_client.workspace = true
 semver.workspace = true
@@ -32,3 +34,9 @@ urlencoding.workspace = true
 # Dev builds of Zed read assets from the Zed checkout at runtime; embed them instead.
 util = { workspace = true, features = ["debug-embed"] }
 zlog.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, features = ["font-kit"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+gpui_ios.workspace = true

@@ -4,7 +4,8 @@ import Foundation
 import PackageDescription
 
 // Zed's GPUI Markdown preview as a SwiftUI view, plus a demo app.
-// Build the Rust static library first (`mise run build:rust`); it links from `target/<configuration>`.
+// Build the Rust static library first (`mise run build:rust`, or `mise run build:rust:ios` for the
+// simulator); it links from `target/<configuration>` on macOS and `target/ios/<configuration>` on iOS.
 
 let rustTarget = URL(fileURLWithPath: #filePath)
   .deletingLastPathComponent()
@@ -18,7 +19,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
   name: "ZedMarkdown",
-  platforms: [.macOS("15.4")],
+  platforms: [.macOS("15.4"), .iOS("17.0")],
   products: [
     .library(name: "ZedMarkdown", targets: ["ZedMarkdown"]),
     .executable(name: "ZedMarkdownPreview", targets: ["ZedMarkdownPreview"]),
@@ -32,23 +33,32 @@ let package = Package(
       swiftSettings: swiftSettings,
       linkerSettings: [
         .unsafeFlags(
-          ["-L", rustTarget.appendingPathComponent("debug").path], .when(configuration: .debug)),
+          ["-L", rustTarget.appendingPathComponent("debug").path],
+          .when(platforms: [.macOS], configuration: .debug)),
         .unsafeFlags(
-          ["-L", rustTarget.appendingPathComponent("release").path], .when(configuration: .release)),
+          ["-L", rustTarget.appendingPathComponent("release").path],
+          .when(platforms: [.macOS], configuration: .release)),
+        .unsafeFlags(
+          ["-L", rustTarget.appendingPathComponent("ios/debug").path],
+          .when(platforms: [.iOS], configuration: .debug)),
+        .unsafeFlags(
+          ["-L", rustTarget.appendingPathComponent("ios/release").path],
+          .when(platforms: [.iOS], configuration: .release)),
         // System libraries the Rust static library links against
         // (`cargo rustc -- --print native-static-libs`).
         .linkedLibrary("iconv"),
         .linkedLibrary("objc"),
-        .linkedFramework("AppKit"),
-        .linkedFramework("ApplicationServices"),
-        .linkedFramework("Carbon"),
+        .linkedFramework("AppKit", .when(platforms: [.macOS])),
+        .linkedFramework("ApplicationServices", .when(platforms: [.macOS])),
+        .linkedFramework("Carbon", .when(platforms: [.macOS])),
+        .linkedFramework("CoreServices", .when(platforms: [.macOS])),
+        .linkedFramework("IOKit", .when(platforms: [.macOS])),
+        .linkedFramework("UIKit", .when(platforms: [.iOS])),
         .linkedFramework("CoreFoundation"),
         .linkedFramework("CoreGraphics"),
-        .linkedFramework("CoreServices"),
         .linkedFramework("CoreText"),
         .linkedFramework("CoreVideo"),
         .linkedFramework("Foundation"),
-        .linkedFramework("IOKit"),
         .linkedFramework("Metal"),
         .linkedFramework("QuartzCore"),
         .linkedFramework("Security"),
