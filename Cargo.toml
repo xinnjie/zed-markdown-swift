@@ -2,7 +2,14 @@
 
 [workspace]
 resolver = "2"
-members = ["packages/gpui_macos", "packages/zed-gpui-c-api"]
+members = [
+    "packages/gpui_ios",
+    "packages/gpui_macos",
+    "packages/zed-gpui-c-api",
+    "third_party/trash-rs",
+    "third_party/fs",
+    "third_party/settings",
+]
 
 [workspace.package]
 publish = false
@@ -12,18 +19,29 @@ edition = "2024"
 assets = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 collections = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488", version = "0.1.0" }
 fs = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+git = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488", default-features = false }
 gpui_apple = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 gpui_macos = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488", default-features = false }
 gpui_util = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 language = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 languages = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 markdown = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+migrator = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 node_runtime = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+paths = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+proto = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 release_channel = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+rope = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 scheduler = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 settings = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+settings_content = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+settings_json = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488", default-features = false }
+settings_macros = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+telemetry = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
+text = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 theme = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 theme_settings = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
 ui = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8f87d983287d95eab37e9488" }
@@ -32,6 +50,10 @@ zlog = { git = "https://github.com/zed-industries/zed", rev = "5adae449a366fd8f8
 accesskit = { version = "0.24.0", features = ["enumn"] }
 accesskit_macos = "0.26.0"
 anyhow = "1.0.86"
+async-channel = { version = "2.5", default-features = false }
+async-std = { version = "1.12", features = ["unstable"] }
+async-tar = { git = "https://github.com/zed-industries/async-tar", rev = "bd3ad6f89df9a9da7a8535958756d6bf465936a0" }
+async-trait = "0.1"
 block2 = "0.6"
 cocoa = "=0.26.0"
 core-foundation = "0.10"
@@ -39,8 +61,13 @@ core-foundation-sys = "0.8.6"
 core-graphics = "0.24"
 ctor = "1.0.12"
 dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+dunce = "1.0"
+ec4rs = { version = "1.2", features = ["allow-empty-values"] }
 foreign-types = "0.5"
 futures = "0.3.34"
+ignore = "0.4.22"
+# image's default features minus "avif", which only adds an encoder (rav1e);
+# decoding AVIF would additionally need the non-default "avif-native" feature.
 image = { version = "0.25.1", default-features = false, features = [
     "bmp",
     "dds",
@@ -58,10 +85,48 @@ image = { version = "0.25.1", default-features = false, features = [
     "tiff",
     "webp",
 ] }
+indoc = "2"
+inventory = "0.3.19"
+is_executable = "1.0"
 itertools = "0.14.0"
+libc = "0.2"
 log = { version = "0.4", default-features = false, features = ["std"] }
 objc = "0.2"
 objc2 = "0.6"
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "block2",
+    "objc2-quartz-core",
+    "objc2-core-foundation",
+    "NSText",
+    "UIApplication",
+    "UICommand",
+    "UICornerConfiguration",
+    "UICornerRadius",
+    "UIEvent",
+    "UIGeometry",
+    "UIGestureRecognizer",
+    "UIPanGestureRecognizer",
+    "UIScreenEdgePanGestureRecognizer",
+    "UIInterface",
+    "UIOpenURLContext",
+    "UIPasteboard",
+    "UIResponder",
+    "UIScene",
+    "UISceneConfiguration",
+    "UISceneDefinitions",
+    "UISceneOptions",
+    "UISceneSession",
+    "UIScreen",
+    "UITextInput",
+    "UITextInputTraits",
+    "UITouch",
+    "UITraitCollection",
+    "UIView",
+    "UIViewController",
+    "UIWindow",
+    "UIWindowScene",
+] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSAlert",
     "NSApplication",
@@ -83,17 +148,10 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "block2",
     "objc2-core-foundation",
 ] }
-objc2-core-graphics = { version = "=0.3.2", default-features = false, features = [
-    "CGDirectDisplay",
-] }
-objc2-core-media = { version = "=0.3.2", default-features = false, features = [
-    "CMSampleBuffer",
-    "objc2-core-video",
-] }
-objc2-core-video = { version = "=0.3.2", default-features = false, features = [
-    "CVBuffer",
-    "CVImageBuffer",
-] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["CGDirectDisplay"] }
+objc2-core-media = { version = "=0.3.2", default-features = false, features = ["CMSampleBuffer", "objc2-core-video"] }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["CVBuffer", "CVImageBuffer"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "NSArray",
     "NSAttributedString",
@@ -117,6 +175,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "objc2-core-foundation",
     "std",
 ] }
+objc2-quartz-core = { version = "=0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer"] }
 objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, features = [
     "block2",
     "dispatch2",
@@ -124,7 +183,7 @@ objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, featu
     "objc2-core-media",
     "SCShareableContent",
     "SCStream",
-    "std",
+    "std"
 ] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = [
     "std",
@@ -139,14 +198,58 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
     "UNUserNotificationCenter",
 ] }
 parking_lot = "0.12.1"
+pretty_assertions = { version = "1.3.0", features = ["unstable"] }
 raw-window-handle = "0.6"
+rustix = { version = "1.1", features = ["fs"] }
+schemars = { version = "1.0", default-features = false, features = ["std", "indexmap2"] }
 semver = { version = "1.0", features = ["serde"] }
+serde = { version = "1.0", features = ["rc"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+serde_json_lenient = { version = "0.2", features = [
+    "preserve_order",
+    "raw_value",
+] }
+slotmap = "1.0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
+smol = "2.0"
 strum = { version = "0.28", features = ["derive"] }
+tempfile = "3.20.0"
+thiserror = "2.0.12"
+unindent = "0.2.0"
 urlencoding = "2.1.2"
 uuid = { version = "1.1", features = ["serde"] }
+
+[workspace.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+# Route every Zed crate's dependency on gpui_macos and gpui_ios to the vendored copies with the
+# hosted view mode.
 [patch."https://github.com/zed-industries/zed"]
+gpui_ios = { path = "packages/gpui_ios" }
 gpui_macos = { path = "packages/gpui_macos" }
+# Copies of Zed crates patched for iOS (see third_party/README.md).
+fs = { path = "third_party/fs" }
+settings = { path = "third_party/settings" }
+
+[patch."https://github.com/zed-industries/trash-rs"]
+trash = { path = "third_party/trash-rs" }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7" }
